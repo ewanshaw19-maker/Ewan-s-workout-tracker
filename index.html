@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Ewan's Workout Tracker</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#111827">
+<style>
+*{box-sizing:border-box}body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#f3f4f6;color:#111827}
+header{background:#111827;color:white;padding:22px 18px;position:sticky;top:0;z-index:2}header h1{margin:0;font-size:24px}header p{margin:5px 0 0;color:#cbd5e1}
+main{max-width:760px;margin:auto;padding:18px}.card{background:white;border-radius:18px;padding:18px;margin:14px 0;box-shadow:0 3px 14px #00000010}
+textarea,input,select{width:100%;padding:13px;border:1px solid #d1d5db;border-radius:12px;font-size:16px;margin-top:8px}
+button{border:0;border-radius:12px;padding:13px 16px;font-weight:700;font-size:15px;cursor:pointer}
+.primary{background:#111827;color:#fff}.secondary{background:#e5e7eb;color:#111827}.danger{background:#fee2e2;color:#991b1b}
+.actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}.exercise{border:1px solid #e5e7eb;border-radius:14px;padding:14px;margin:10px 0}
+.exercise h3{margin:0 0 5px}.muted{color:#6b7280;font-size:14px}.tag{display:inline-block;background:#eef2ff;padding:4px 8px;border-radius:99px;font-size:12px;margin:3px 3px 0 0}
+.hidden{display:none}.success{background:#ecfdf5;color:#065f46;padding:12px;border-radius:12px;margin:10px 0}
+</style>
+</head>
+<body>
+<header><h1>🏋️ Ewan's Workout Tracker</h1><p>Rotate your core workout • track sets • reps • weight • rest</p></header>
+<main>
+<section id="setup">
+<div class="card">
+<h2>Create your programme</h2>
+<p>Tell the app what exercises you want in your full-body workout.</p>
+<textarea id="prompt" rows="6" placeholder="Example: chest press, lat pulldown, shoulder press, leg press, leg curl, bicep curl, tricep pushdown"></textarea>
+<div class="actions"><button class="primary" onclick="buildPlan()">Build my programme</button><button class="secondary" onclick="loadDemo()">Use demo</button></div>
+</div>
+<div id="plan"></div>
+</section>
+
+<section id="workout" class="hidden">
+<div class="card">
+<h2>Today's workout</h2><p class="muted" id="workoutDate"></p>
+<div id="today"></div>
+<div class="actions"><button class="primary" onclick="generateWorkout()">Generate another workout</button><button class="secondary" onclick="showSetup()">Edit programme</button></div>
+</div>
+<div class="card"><h2>Rotation history</h2><div id="history"></div></div>
+</section>
+</main>
+<script>
+const DB_KEY="workout-rotator-v1";
+const CORE=[
+["Chest press",90,["Machine chest press","Dumbbell bench press","Barbell bench press","Smith-machine bench press","Cable chest press","Incline dumbbell press"]],
+["Tricep pushdown",60,["Rope tricep pushdown","Straight-bar pushdown","Single-arm cable extension","Overhead cable extension","Machine dip"]],
+["Bicep curls",60,["Dumbbell curl","EZ-bar curl","Hammer curl","Preacher curl","Cable curl","Incline dumbbell curl"]],
+["Leg extensions",60,["Leg extension","Single-leg extension","Cable knee extension","Reverse Nordic"]],
+["Leg curls",60,["Seated leg curl","Lying leg curl","Standing single-leg curl","Cable leg curl"]],
+["Lat pulldown",90,["Lat pulldown","Neutral-grip pulldown","Assisted pull-up","Single-arm cable pulldown","Close-grip pulldown"]],
+["Seated row",90,["Seated cable row","Chest-supported machine row","Chest-supported dumbbell row","Single-arm cable row","Machine row"]],
+["Lateral raises",60,["Dumbbell lateral raise","Cable lateral raise","Machine lateral raise","Leaning cable lateral raise"]]
+];
+const FORBIDDEN=["squat","deadlift","split squat"];
+function state(){return JSON.parse(localStorage.getItem(DB_KEY)||'{"slots":[],"history":[]}')}
+function save(s){localStorage.setItem(DB_KEY,JSON.stringify(s))}
+function normal(s){return s.toLowerCase().replace(/[.]/g,"").trim()}
+function buildPlan(){alert("Your core workout is fixed in Ewan's Workout Tracker. Use Settings to view the eight locked slots.");}
+function generateWorkout(){
+ let s=state(), recent=s.history.slice(-4).flatMap(x=>x.items);
+ s.slots=CORE.map((c,i)=>{
+   let choices=c[2].filter(n=>!recent.includes(n)&&!FORBIDDEN.some(f=>n.toLowerCase().includes(f)));
+   if(!choices.length) choices=c[2];
+   return {id:i+1,name:c[0],rest:c[1],alternatives:choices.map(n=>({name:n,muscle:c[0]}))};
+ });
+ s.current=s.slots.map(x=>x.alternatives[Math.floor(Math.random()*x.alternatives.length)]);
+ save(s);renderWorkout();document.getElementById("setup").classList.add("hidden");document.getElementById("workout").classList.remove("hidden");
+}
+function renderPlan(){
+ let s=state(),el=document.getElementById("plan");
+ el.innerHTML="<div class='card'><h2>Your fixed core workout</h2>"+CORE.map((x,i)=>`<div class='exercise'><h3>${i+1}. 🔒 ${esc(x[0])}</h3><span class='muted'>${x[2].length} approved variations • ${x[1]}s rest</span><div>${x[2].map(n=>`<span class='tag'>${esc(n)}</span>`).join("")}</div></div>`).join("")+
+ "<div class='exercise'><h3>🚫 Permanent exclusions</h3><span class='tag'>Squats</span><span class='tag'>Deadlifts</span><span class='tag'>Split squats</span></div>"+
+ "<div class='actions'><button class='primary' onclick='generateWorkout()'>🏋️ Generate today's workout</button></div></div>";
+}
+function generateWorkout(){
+ let s=state(); if(!s.slots.length){showSetup();return}
+ const used=s.history.slice(-12).flatMap(x=>x.items);
+ let items=s.slots.map(slot=>{
+   let choices=slot.alternatives.filter(a=>!used.includes(a.name));
+   if(!choices.length) choices=slot.alternatives;
+   return {...slot,selected:choices[Math.floor(Math.random()*choices.length)]};
+ });
+ const record={date:new Date().toLocaleString("en-GB",{dateStyle:"medium",timeStyle:"short"}),items:items.map(x=>x.selected.name)};
+ s.history.push(record);if(s.history.length>20)s.history.shift();save(s);
+ renderWorkout(items,record);document.getElementById("setup").classList.add("hidden");document.getElementById("workout").classList.remove("hidden");
+}
+function renderWorkout(items,record){
+ document.getElementById("workoutDate").textContent=record.date;
+ document.getElementById("today").innerHTML=items.map((x,i)=>`<div class='exercise'><h3>${i+1}. ${esc(x.selected.name)}</h3><div><span class='tag'>${esc(x.selected.muscle)}</span><span class='tag'>${esc(x.selected.pattern)}</span></div><p class='muted'>Original slot: ${esc(x.name)}</p><div class='actions'><button class='secondary' onclick='swap(${i})'>🔄 Swap this</button></div></div>`).join("");
+ renderHistory();
+}
+function swap(i){
+ let s=state(), latest=s.history[s.history.length-1], slot=s.slots[i], current=latest.items[i];
+ let choices=slot.alternatives.filter(a=>a.name!==current && !latest.items.includes(a.name));
+ if(!choices.length)choices=slot.alternatives.filter(a=>a.name!==current);
+ if(!choices.length)return;
+ latest.items[i]=choices[Math.floor(Math.random()*choices.length)].name;save(s);
+ renderWorkout(s.slots.map((x,j)=>({...x,selected:x.alternatives.find(a=>a.name===latest.items[j])||x.alternatives[0]})),latest);
+}
+function renderHistory(){
+ let s=state();document.getElementById("history").innerHTML=s.history.slice().reverse().slice(0,10).map(h=>`<div class='exercise'><b>${esc(h.date)}</b><div class='muted'>${h.items.map(esc).join(" · ")}</div></div>`).join("")||"<p class='muted'>No workouts yet.</p>";
+}
+function showSetup(){document.getElementById("setup").classList.remove("hidden");document.getElementById("workout").classList.add("hidden");renderPlan()}
+function loadDemo(){document.getElementById("prompt").value="chest press, lat pulldown, shoulder press, leg press, leg curl, bicep curl, tricep pushdown";buildPlan()}
+function resetAll(){if(confirm("Delete your programme and workout history?")){localStorage.removeItem(DB_KEY);location.reload()}}
+function esc(s){return String(s).replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[m]))}
+if("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js");
+if(state().slots.length)renderPlan();
+
+function renderWorkout(){
+ let s=state(); if(!s.current)return;
+ document.getElementById("workoutDate").textContent="Today";
+ document.getElementById("today").innerHTML=s.current.map((x,i)=>`<div class="exercise"><h3>${i+1}. ${esc(x.name)}</h3><p class="muted">Core slot: ${esc(s.slots[i].name)} • ${s.slots[i].rest}s rest</p>
+ <div class="actions">${[1,2,3,4].map(j=>`<input id="r${i}_${j}" type="number" min="0" placeholder="Set ${j} reps" style="width:120px"><input id="w${i}_${j}" type="number" min="0" step=".5" placeholder="kg" style="width:90px">`).join("")}</div>
+ <div class="actions"><button class="secondary" onclick="startRest(${s.slots[i].rest})">⏱️ Start ${s.slots[i].rest}s rest</button><button class="secondary" onclick="swapExercise(${i})">🔄 Swap</button></div></div>`).join("");
+ renderHistory();
+}
+let restTimer=null,restLeft=0;
+function startRest(sec){clearInterval(restTimer);restLeft=sec;updateRest();restTimer=setInterval(()=>{restLeft--;updateRest();if(restLeft<=0){clearInterval(restTimer);restTimer=null;navigator.vibrate?.([200,100,200]);alert("Rest complete — next set! 💪")}},1000)}
+function updateRest(){let m=Math.floor(restLeft/60),s=restLeft%60;document.getElementById("workoutDate").textContent=restLeft?`Rest timer: ${m}:${String(s).padStart(2,"0")}`:"Today"}
+function swapExercise(i){let d=state(),slot=d.slots[i],used=d.current[i].name,choices=CORE[i][2].filter(n=>n!==used&&!FORBIDDEN.some(f=>n.toLowerCase().includes(f)));d.current[i]={name:choices[Math.floor(Math.random()*choices.length)]};save(d);renderWorkout()}
+</script>
+</body></html>
